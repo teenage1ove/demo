@@ -1,0 +1,23 @@
+/* ===== ЗАМЕНИ ПОД ВАРИАНТ: палитра и шрифт ===== */
+:root {
+    --color-primary: #5b4bce;
+    --color-primary-dark: #41349e;
+    --color-accent: #8b7ff0;
+    --color-bg: #f2f1f8;
+    --color-surface: #ffffff;
+    --color-text: #211c33;
+    --color-muted: #74708a;
+    --color-border: #e0ddee;
+    --color-danger: #d64550;
+
+    --font-main: "Rubik", system-ui, sans-serif;
+    --radius: 8px;
+}
+
+/* ===== ЗАМЕНИ ПОД ВАРИАНТ: положи файл шрифта в fonts/main.ttf ===== */
+@font-face {
+    font-family: "Rubik";
+    src: url("../fonts/main.ttf") format("truetype");
+    font-weight: 300 900;
+    font-display: swap;
+}
