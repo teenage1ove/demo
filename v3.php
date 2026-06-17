@@ -1,101 +1,85 @@
 <?php
-/*
-  
-  
-  -------------------------------------------------------------------------------------
-  КАК РАЗБИТЬ НА ОТДЕЛЬНЫЕ ФАЙЛЫ (режь по баннерам «==== ФАЙЛ: xxx ====»):
-    1) db.php        — $SCHEMA + class Db
-    2) functions.php — h(), uid(), redirect(), ru_date(), csrf_token(), csrf_verify()
-    3) config.php    — креды БД, админ, сессия, создание $db
-                       (в начало config.php добавь:  require 'db.php';  require 'functions.php'; )
-    4) index.php     — роутер + страницы + JS
-                       (в начало index.php добавь:   require 'config.php'; )
-    5) style.css     — то, что внутри <style>…</style>
-                       (в index.php замени <style>…</style> на <link rel="stylesheet" href="style.css">)
-  -------------------------------------------------------------------------------------
-  БЕЗОПАСНОСТЬ:
-    • XSS  — любой вывод в HTML через h() (htmlspecialchars, ENT_QUOTES)
-    • Пароли — password_hash(PASSWORD_DEFAULT) + password_verify (хранится только хеш)
-    • CSRF — токен в сессии, скрытое поле во всех формах, проверка csrf_verify() на каждый POST
-    • SQL  — подготовленные запросы (prepared statements, bind_param) в class Db
-  =====================================================================================
-*/
+/* ФАЙЛ: v3.sql — 
+
+SET NAMES utf8mb4;
+
+CREATE DATABASE IF NOT EXISTS `passenger_rf` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE `passenger_rf`;
+
+DROP TABLE IF EXISTS `reviews`;
+DROP TABLE IF EXISTS `applications`;
+DROP TABLE IF EXISTS `items`;
+DROP TABLE IF EXISTS `users`;
+
+CREATE TABLE `users` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `login` VARCHAR(50) NOT NULL UNIQUE,
+  `password` VARCHAR(255) NOT NULL,
+  `fio` VARCHAR(200) NOT NULL,
+  `phone` VARCHAR(20) NOT NULL,
+  `email` VARCHAR(100) NOT NULL,
+  `birth_date` DATE DEFAULT NULL,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `items` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `name` VARCHAR(255) NOT NULL,
+  `category` VARCHAR(100) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `applications` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `user_id` INT NOT NULL,
+  `item_id` INT NOT NULL,
+  `start_date` DATE NOT NULL,
+  `payment_method` VARCHAR(50) NOT NULL,
+  `status` VARCHAR(50) NOT NULL DEFAULT 'Новая',
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`item_id`) REFERENCES `items` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `reviews` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `application_id` INT NOT NULL UNIQUE,
+  `user_id` INT NOT NULL,
+  `review_text` TEXT NOT NULL,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (`application_id`) REFERENCES `applications` (`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `items` (`name`, `category`) VALUES
+('Вождение городского автобуса', 'Автобус'),
+('Вождение междугороднего автобуса', 'Автобус'),
+('Управление электробусом', 'Электробус'),
+('Управление трамваем', 'Трамвай'),
+('Вождение сочленённого автобуса', 'Автобус');
+
+-- тестовый пользователь: логин test12 / пароль test1234
+INSERT INTO `users` (`login`, `password`, `fio`, `phone`, `email`, `birth_date`) VALUES
+('test12', '$2y$12$di3Sp90YCZywBqYGbqnMbOgPN1yCj243u.vSZdvdfraA2NRFzbsyC', 'Наумова Софья Михайловна', '79998567744', 'test1@mail.ru', '2000-03-21');
+
+===================================================================== */
 
 
-/* ===================== ФАЙЛ: db.php ===================== */
-
-$SCHEMA = "
-CREATE TABLE IF NOT EXISTS users (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  login VARCHAR(50) NOT NULL UNIQUE,
-  password VARCHAR(255) NOT NULL,
-  fio VARCHAR(200) NOT NULL,
-  phone VARCHAR(20) NOT NULL,
-  email VARCHAR(100) NOT NULL,
-  birth_date DATE DEFAULT NULL,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE IF NOT EXISTS items (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(255) NOT NULL,
-  category VARCHAR(100) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE IF NOT EXISTS applications (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  user_id INT NOT NULL,
-  item_id INT NOT NULL,
-  start_date DATE NOT NULL,
-  payment_method VARCHAR(50) NOT NULL,
-  status VARCHAR(50) NOT NULL DEFAULT 'Новая',
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (item_id) REFERENCES items(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE IF NOT EXISTS reviews (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  application_id INT NOT NULL UNIQUE,
-  user_id INT NOT NULL,
-  review_text TEXT NOT NULL,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-";
+/*  ФАЙЛ: db.php  */
 
 class Db
 {
     private mysqli $c;
 
-    public function __construct(string $h, string $u, string $p, string $name, string $schema, array $seed)
+    public function __construct(string $h, string $u, string $p, string $name)
     {
-        $this->c = new mysqli($h, $u, $p);
-        if ($this->c->connect_errno) {
-            die('Ошибка подключения к MySQL: ' . $this->c->connect_error);
+        try {
+            $this->c = new mysqli($h, $u, $p, $name);
+        } catch (\mysqli_sql_exception $e) {
+            die('Нет связи с базой «' . $name . '». Сначала импортируй SQL в phpMyAdmin. (' . $e->getMessage() . ')');
         }
         $this->c->set_charset('utf8mb4');
-        $this->c->query("CREATE DATABASE IF NOT EXISTS `$name` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-        $this->c->select_db($name);
-        $this->c->multi_query($schema);
-        while ($this->c->more_results() && $this->c->next_result()) {;}
-        $this->seed($seed);
     }
 
-    private function seed(array $items): void
-    {
-        if ((int) $this->value('SELECT COUNT(*) FROM items') === 0) {
-            foreach ($items as $it) {
-                $this->run('INSERT INTO items(name, category) VALUES(?,?)', $it);
-            }
-        }
-        if ((int) $this->value('SELECT COUNT(*) FROM users') === 0) {
-            $this->run('INSERT INTO users(login,password,fio,phone,email) VALUES(?,?,?,?,?)', [
-                'test12', password_hash('test1234', PASSWORD_DEFAULT),
-                'Наумова Софья Михайловна', '79998567744', 'test1@mail.ru',
-            ]);
-        }
-    }
-
-    // все запросы — подготовленные (защита от SQL-инъекций)
     private function run(string $sql, array $p): mysqli_stmt
     {
         $st = $this->c->prepare($sql);
@@ -114,8 +98,7 @@ class Db
 }
 
 
-/*  functions.php  */
-
+/*  ФАЙЛ: functions.php  */
 
 function h($v): string { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); }
 
@@ -125,7 +108,6 @@ function redirect(string $to): void { header("Location: ?page=$to"); exit; }
 
 function ru_date(?string $d): string { $t = $d ? strtotime($d) : false; return $t ? date('d.m.Y', $t) : (string) $d; }
 
-// CSRF: токен в сессии + проверка
 function csrf_token(): string
 {
     if (empty($_SESSION['csrf'])) {
@@ -139,8 +121,11 @@ function csrf_verify(): bool
 }
 
 
-/* ===================== ФАЙЛ: config.php ===================== */
-/*  в начало config.php :  require 'db.php';  require 'functions.php'; */
+/*  ФАЙЛ: config.php  */
+/*  в начало config.php:  require 'db.php';  require 'functions.php';  */
+
+require 'db.php';
+require 'functions.php';
 
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
@@ -151,23 +136,18 @@ $DB_PASS = '';
 define('ADMIN_LOGIN', 'Admin26');
 define('ADMIN_PASSWORD', 'Demo20');
 
-$db = new Db($DB_HOST, $DB_USER, $DB_PASS, 'passenger_rf', $SCHEMA, [
-    ['Вождение городского автобуса', 'Автобус'],
-    ['Вождение междугороднего автобуса', 'Автобус'],
-    ['Управление электробусом', 'Электробус'],
-    ['Управление трамваем', 'Трамвай'],
-    ['Вождение сочленённого автобуса', 'Автобус'],
-]);
+$db = new Db($DB_HOST, $DB_USER, $DB_PASS, 'passenger_rf');
 
 
-/* ФАЙЛ: index.php */
-/* в начало index.php добавить:  require 'config.php'; */
+/*  ФАЙЛ: index.php  */
+/*  в начало index.php:  require 'config.php';  */
+
+require 'config.php';
 
 $page = $_POST['page'] ?? $_GET['page'] ?? 'index';
 $flash = '';
 $errors = [];
 $old = [];
-
 
 $is_post = $_SERVER['REQUEST_METHOD'] === 'POST';
 if ($is_post && !csrf_verify()) {
@@ -175,11 +155,9 @@ if ($is_post && !csrf_verify()) {
     $is_post = false;
 }
 
-/* --- выход --- */
 if ($page === 'logout') { session_destroy(); header('Location: ?page=index'); exit; }
 if (($_GET['adminout'] ?? '') === '1') { unset($_SESSION['is_admin']); redirect('admin'); }
 
-/* --- регистрация --- */
 if ($page === 'register' && $is_post) {
     foreach (['login', 'fio', 'phone', 'email', 'birth_date'] as $k) { $old[$k] = trim($_POST[$k] ?? ''); }
     $pwd = $_POST['password'] ?? '';
@@ -199,7 +177,6 @@ if ($page === 'register' && $is_post) {
     }
 }
 
-/* --- вход --- */
 if ($page === 'login' && $is_post) {
     $old['login'] = trim($_POST['login'] ?? '');
     $u = $db->one('SELECT id,password FROM users WHERE login=?', [$old['login']]);
@@ -210,7 +187,6 @@ if ($page === 'login' && $is_post) {
     $errors['form'] = 'Неверный логин или пароль';
 }
 
-/* --- оформление заявки --- */
 if ($page === 'application' && $is_post && uid()) {
     $old['item_id'] = $_POST['item_id'] ?? '';
     $old['start_date'] = trim($_POST['start_date'] ?? '');
@@ -227,7 +203,6 @@ if ($page === 'application' && $is_post && uid()) {
     }
 }
 
-/* --- отзыв --- */
 if ($page === 'cabinet' && $is_post && uid() && isset($_POST['application_id'])) {
     $aid = (int) $_POST['application_id'];
     $txt = trim($_POST['review_text'] ?? '');
@@ -238,7 +213,6 @@ if ($page === 'cabinet' && $is_post && uid() && isset($_POST['application_id']))
     redirect('cabinet');
 }
 
-/* --- админ: вход и смена статуса --- */
 if ($page === 'admin' && $is_post && isset($_POST['admin_login'])) {
     if ($_POST['admin_login'] === ADMIN_LOGIN && ($_POST['admin_password'] ?? '') === ADMIN_PASSWORD) { $_SESSION['is_admin'] = true; redirect('admin'); }
     $errors['form'] = 'Неверный логин или пароль администратора';
@@ -250,11 +224,12 @@ if ($page === 'admin' && $is_post && isset($_POST['change_status']) && !empty($_
     }
 }
 
-/* доступ только для авторизованных */
 if (in_array($page, ['cabinet', 'application'], true) && !uid()) { redirect('login'); }
 
 $badge = ['Новая' => 'b-new', 'Идет обучение' => 'b-prog', 'Обучение завершено' => 'b-done'];
 $csrf = csrf_token();
+
+$view = in_array($page, ['index', 'register', 'login', 'cabinet', 'application', 'admin'], true) ? $page : 'index';
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -262,11 +237,9 @@ $csrf = csrf_token();
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Пассажирам.РФ</title>
-<!-- ===================== ФАЙЛ: style.css =====================
-     при разбиении вырежи всё между <style> и </style> в style.css,
-     а здесь оставь:  <link rel="stylesheet" href="style.css"> -->
+<link rel="stylesheet" href="style.css">
+<!--  ФАЙЛ: style.css — вырежи всё между <style> и </style> в style.css, тут оставь только <link> сверху -->
 <style>
-/* ЗАМЕНИ ПОД ВАРИАНТ: палитра (HEX) и радиус скругления */
 :root {
     --primary: #0d8a8a;
     --dark:    #0a6a6a;
@@ -306,7 +279,6 @@ body {
     box-shadow: 0 0 40px rgba(0, 0, 0, .10);
 }
 
-/* типографика (иерархия размеров) */
 h1 { font-size: 36px; font-weight: 700; line-height: 1.1; letter-spacing: -.5px; }
 h2 { font-size: 24px; font-weight: 600; }
 h3 { font-size: 18px; font-weight: 600; }
@@ -314,7 +286,6 @@ small, .small { font-size: 12px; color: var(--muted); }
 
 a { color: var(--dark); text-decoration: none; }
 
-/* шапка */
 .top {
     display: flex;
     align-items: center;
@@ -347,7 +318,6 @@ a { color: var(--dark); text-decoration: none; }
 .nav a { color: #fff; font-size: 13px; opacity: .9; }
 .nav a:hover { opacity: 1; }
 
-/* контент */
 main { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
 
 .bot {
@@ -373,7 +343,6 @@ main { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 16px;
 }
 .card h2, .card h3 { margin-bottom: 12px; }
 
-/* слайдер */
 .slider { position: relative; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
 .track { display: flex; transition: transform .45s cubic-bezier(.4, 0, .2, 1); }
 .slide {
@@ -411,7 +380,6 @@ main { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 16px;
 .dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, .55); transition: width .25s; }
 .dot.on { width: 18px; border-radius: 4px; background: #fff; }
 
-/* формы */
 .form { display: flex; flex-direction: column; gap: 14px; }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field label { font-size: 13px; font-weight: 500; color: var(--muted); }
@@ -433,7 +401,6 @@ main { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 16px;
 .field textarea { resize: vertical; }
 .hint { font-size: 12px; color: var(--danger); }
 
-/* кнопки */
 .btn {
     font-family: inherit;
     font-size: 15px;
@@ -455,7 +422,6 @@ main { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 16px;
 
 .link { text-align: center; font-size: 13px; }
 
-/* уведомления */
 .alert {
     padding: 11px 14px;
     border-radius: 11px;
@@ -465,20 +431,17 @@ main { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 16px;
     border: 1px solid #f6c9ce;
 }
 
-/* статусы */
 .badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .b-new { background: #eef1f4; color: var(--muted); }
 .b-prog { background: #fff3da; color: #9a6b00; }
 .b-done { background: #e3f6ec; color: #1f8a52; }
 
-/* списки/карточки заявок */
 .list { display: flex; flex-direction: column; gap: 10px; }
 .item { border: 1px solid var(--border); border-radius: 13px; padding: 13px; background: var(--surface); transition: box-shadow .15s; }
 .item:hover { box-shadow: var(--shadow-sm); }
 .item .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .meta { font-size: 12px; color: var(--muted); margin-top: 5px; }
 
-/* админ */
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
 .toolbar input, .toolbar select {
     padding: 9px 11px;
@@ -495,7 +458,6 @@ th { color: var(--muted); font-weight: 600; }
 .pag a, .pag span { padding: 7px 11px; border: 1px solid var(--border); border-radius: 9px; font-size: 13px; }
 .pag .on { background: var(--primary); color: #fff; border-color: var(--primary); }
 
-/* тост */
 .toast {
     position: fixed;
     left: 50%;
@@ -528,199 +490,15 @@ th { color: var(--muted); font-weight: 600; }
 </header>
 <main>
 <?php
-/* --- страницы (рендер по $page) --- */
-if ($page === 'index'):
-    $items = $db->all('SELECT name,category FROM items ORDER BY id');
+/*  СТРАНИЦЫ: каждый блок-страницу (ниже, после </html>) вынеси в pages/<имя>.php,
+    а здесь оставь только этот include (он подключит нужную страницу). */
+include "pages/$view.php";
 ?>
-    <section class="hero"><h1>Пассажирам.РФ</h1><p>Курсы вождения городского пассажирского транспорта</p></section>
-    <div class="slider">
-        <div class="track">
-            <?php for ($i = 1; $i <= 4; $i++): ?>
-                <div class="slide" style="background:linear-gradient(135deg,var(--primary),var(--accent))">Пассажирам.РФ · <?= $i ?></div>
-            <?php endfor; ?>
-        </div>
-        <button class="sbtn sprev" type="button" onclick="slide(-1)">‹</button>
-        <button class="sbtn snext" type="button" onclick="slide(1)">›</button>
-        <div class="dots"><span class="dot on"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
-    </div>
-    <section class="card">
-        <h2>Виды транспорта</h2>
-        <div class="list">
-            <?php foreach ($items as $it): ?>
-                <div class="item"><div class="row"><strong><?= h($it['name']) ?></strong></div><div class="meta"><?= h($it['category']) ?></div></div>
-            <?php endforeach; ?>
-        </div>
-    </section>
-    <a class="btn" href="?page=<?= uid() ? 'application' : 'register' ?>">Оставить заявку</a>
-
-<?php elseif ($page === 'register'): ?>
-    <div class="card">
-        <h2>Регистрация</h2>
-        <form class="form" method="post" novalidate>
-            <input type="hidden" name="page" value="register">
-            <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
-            <div class="field"><label>Логин</label><input type="text" name="login" value="<?= h($old['login'] ?? '') ?>"><?php if (isset($errors['login'])): ?><span class="hint"><?= h($errors['login']) ?></span><?php endif; ?></div>
-            <div class="field"><label>Пароль</label><input type="password" name="password"><?php if (isset($errors['password'])): ?><span class="hint"><?= h($errors['password']) ?></span><?php endif; ?></div>
-            <div class="field"><label>ФИО</label><input type="text" name="fio" value="<?= h($old['fio'] ?? '') ?>"><?php if (isset($errors['fio'])): ?><span class="hint"><?= h($errors['fio']) ?></span><?php endif; ?></div>
-            <div class="field"><label>Дата рождения</label><input type="date" name="birth_date" value="<?= h($old['birth_date'] ?? '') ?>"><?php if (isset($errors['birth_date'])): ?><span class="hint"><?= h($errors['birth_date']) ?></span><?php endif; ?></div>
-            <div class="field"><label>Телефон</label><input type="text" name="phone" value="<?= h($old['phone'] ?? '') ?>"><?php if (isset($errors['phone'])): ?><span class="hint"><?= h($errors['phone']) ?></span><?php endif; ?></div>
-            <div class="field"><label>E-mail</label><input type="email" name="email" value="<?= h($old['email'] ?? '') ?>"><?php if (isset($errors['email'])): ?><span class="hint"><?= h($errors['email']) ?></span><?php endif; ?></div>
-            <?php if (isset($errors['form'])): ?><div class="alert"><?= h($errors['form']) ?></div><?php endif; ?>
-            <button class="btn" type="submit">Зарегистрироваться</button>
-            <div class="link"><a href="?page=login">Уже есть аккаунт? Вход</a></div>
-        </form>
-    </div>
-
-<?php elseif ($page === 'login'): ?>
-    <div class="card">
-        <h2>Вход</h2>
-        <?php if (isset($errors['form'])): ?><div class="alert"><?= h($errors['form']) ?></div><?php endif; ?>
-        <form class="form" method="post" novalidate>
-            <input type="hidden" name="page" value="login">
-            <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
-            <div class="field"><label>Логин</label><input type="text" name="login" value="<?= h($old['login'] ?? '') ?>"></div>
-            <div class="field"><label>Пароль</label><input type="password" name="password"></div>
-            <button class="btn" type="submit">Войти</button>
-            <div class="link"><a href="?page=register">Еще не зарегистрированы? Регистрация</a></div>
-        </form>
-    </div>
-
-<?php elseif ($page === 'application'):
-    $items = $db->all('SELECT id,name,category FROM items ORDER BY id');
-?>
-    <div class="card">
-        <h2>Оформление заявки</h2>
-        <form class="form" method="post" novalidate>
-            <input type="hidden" name="page" value="application">
-            <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
-            <div class="field"><label>Вид транспорта</label>
-                <select name="item_id"><option value="">— выберите —</option>
-                <?php foreach ($items as $it): ?><option value="<?= (int) $it['id'] ?>" <?= ($old['item_id'] ?? '') == $it['id'] ? 'selected' : '' ?>><?= h($it['name']) ?> (<?= h($it['category']) ?>)</option><?php endforeach; ?>
-                </select><?php if (isset($errors['item_id'])): ?><span class="hint"><?= h($errors['item_id']) ?></span><?php endif; ?>
-            </div>
-            <div class="field"><label>Дата начала (ДД.ММ.ГГГГ)</label><input type="text" name="start_date" placeholder="01.09.2026" value="<?= h($old['start_date'] ?? '') ?>"><?php if (isset($errors['start_date'])): ?><span class="hint"><?= h($errors['start_date']) ?></span><?php endif; ?></div>
-            <div class="field"><label>Способ оплаты</label>
-                <select name="payment_method"><option value="">— выберите —</option>
-                <?php foreach (['Банковская карта', 'Наличные', 'Счёт для юридических лиц'] as $p): ?><option value="<?= h($p) ?>" <?= ($old['payment_method'] ?? '') === $p ? 'selected' : '' ?>><?= h($p) ?></option><?php endforeach; ?>
-                </select><?php if (isset($errors['payment_method'])): ?><span class="hint"><?= h($errors['payment_method']) ?></span><?php endif; ?>
-            </div>
-            <?php if (isset($errors['form'])): ?><div class="alert"><?= h($errors['form']) ?></div><?php endif; ?>
-            <button class="btn" type="submit">Отправить заявку</button>
-        </form>
-    </div>
-
-<?php elseif ($page === 'cabinet'):
-    $apps = $db->all('SELECT a.id,a.start_date,a.payment_method,a.status,i.name item_name,r.review_text
-        FROM applications a JOIN items i ON i.id=a.item_id LEFT JOIN reviews r ON r.application_id=a.id
-        WHERE a.user_id=? ORDER BY a.created_at DESC', [uid()]);
-    $me = $db->one('SELECT login,fio FROM users WHERE id=?', [uid()]);
-?>
-    <section class="hero"><h2>Здравствуйте, <?= h($me['fio'] ?: $me['login']) ?></h2></section>
-    <div class="slider">
-        <div class="track">
-            <?php for ($i = 1; $i <= 4; $i++): ?><div class="slide" style="background:linear-gradient(135deg,var(--primary),var(--accent))">Пассажирам.РФ · <?= $i ?></div><?php endfor; ?>
-        </div>
-        <button class="sbtn sprev" type="button" onclick="slide(-1)">‹</button>
-        <button class="sbtn snext" type="button" onclick="slide(1)">›</button>
-        <div class="dots"><span class="dot on"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
-    </div>
-    <section class="card">
-        <h2>Мои заявки</h2>
-        <?php if (!$apps): ?><p class="small">Заявок пока нет. <a href="?page=application">Оформить</a></p>
-        <?php else: ?>
-        <div class="list">
-            <?php foreach ($apps as $a): ?>
-            <div class="item">
-                <div class="row"><strong><?= h($a['item_name']) ?></strong><span class="badge <?= $badge[$a['status']] ?? 'b-new' ?>"><?= h($a['status']) ?></span></div>
-                <div class="meta">Начало: <?= h(ru_date($a['start_date'])) ?> · <?= h($a['payment_method']) ?></div>
-                <?php if ($a['review_text']): ?><p class="small">Ваш отзыв: <?= h($a['review_text']) ?></p>
-                <?php elseif ($a['status'] !== 'Новая'): ?>
-                    <form class="form" method="post" style="margin-top:8px">
-                        <input type="hidden" name="page" value="cabinet"><input type="hidden" name="application_id" value="<?= (int) $a['id'] ?>">
-                        <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
-                        <div class="field"><textarea name="review_text" rows="2" placeholder="Оставить отзыв"></textarea></div>
-                        <button class="btn sm" type="submit">Отправить отзыв</button>
-                    </form>
-                <?php else: ?><p class="small">Отзыв — после смены статуса администратором.</p><?php endif; ?>
-            </div>
-            <?php endforeach; ?>
-        </div>
-        <?php endif; ?>
-    </section>
-    <a class="btn" href="?page=application">Новая заявка</a>
-    <?php if (isset($_GET['created'])): ?><div class="toast">Заявка отправлена</div><?php endif; ?>
-
-<?php elseif ($page === 'admin'):
-    if (empty($_SESSION['is_admin'])): ?>
-        <div class="card">
-            <h2>Панель администратора</h2>
-            <?php if (isset($errors['form'])): ?><div class="alert"><?= h($errors['form']) ?></div><?php endif; ?>
-            <form class="form" method="post" novalidate>
-                <input type="hidden" name="page" value="admin">
-                <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
-                <div class="field"><label>Логин</label><input type="text" name="admin_login"></div>
-                <div class="field"><label>Пароль</label><input type="password" name="admin_password"></div>
-                <button class="btn" type="submit">Войти</button>
-            </form>
-        </div>
-    <?php else:
-        $fStatus = $_GET['status'] ?? ''; $q = trim($_GET['q'] ?? ''); $sort = $_GET['sort'] ?? 'created'; $pg = max(1, (int) ($_GET['p'] ?? 1)); $per = 8;
-        $order = ['created' => 'a.created_at DESC', 'date' => 'a.start_date ASC', 'status' => 'a.status ASC'][$sort] ?? 'a.created_at DESC';
-        $w = []; $pr = [];
-        if (in_array($fStatus, ['Новая', 'Идет обучение', 'Обучение завершено'], true)) { $w[] = 'a.status=?'; $pr[] = $fStatus; }
-        if ($q !== '') { $w[] = '(u.login LIKE ? OR u.fio LIKE ?)'; $pr[] = "%$q%"; $pr[] = "%$q%"; }
-        $ws = $w ? 'WHERE ' . implode(' AND ', $w) : '';
-        $total = (int) $db->value("SELECT COUNT(*) FROM applications a JOIN users u ON u.id=a.user_id $ws", $pr);
-        $pages = max(1, (int) ceil($total / $per)); $pg = min($pg, $pages); $off = ($pg - 1) * $per;
-        $rows = $db->all("SELECT a.id,a.start_date,a.status,u.login,u.fio,i.name item_name
-            FROM applications a JOIN users u ON u.id=a.user_id JOIN items i ON i.id=a.item_id
-            $ws ORDER BY $order LIMIT $per OFFSET $off", $pr);
-        $base = function ($o) use ($fStatus, $q, $sort) { return '?page=admin&' . http_build_query(array_merge(['status' => $fStatus, 'q' => $q, 'sort' => $sort], $o)); };
-    ?>
-        <div class="card">
-            <div class="row" style="display:flex;justify-content:space-between;align-items:center"><h2>Заявки</h2><a class="btn ghost sm" href="?page=admin&adminout=1">Выход</a></div>
-            <form class="toolbar" method="get" style="margin-top:12px">
-                <input type="hidden" name="page" value="admin">
-                <input type="text" name="q" placeholder="Поиск: логин / ФИО" value="<?= h($q) ?>">
-                <select name="status"><option value="">Все статусы</option><?php foreach (['Новая', 'Идет обучение', 'Обучение завершено'] as $s): ?><option value="<?= h($s) ?>" <?= $fStatus === $s ? 'selected' : '' ?>><?= h($s) ?></option><?php endforeach; ?></select>
-                <select name="sort"><option value="created" <?= $sort === 'created' ? 'selected' : '' ?>>По дате создания</option><option value="date" <?= $sort === 'date' ? 'selected' : '' ?>>По дате начала</option><option value="status" <?= $sort === 'status' ? 'selected' : '' ?>>По статусу</option></select>
-                <button class="btn sm" type="submit">Применить</button>
-            </form>
-        </div>
-        <div class="card">
-            <div class="table-wrap">
-                <table>
-                    <thead><tr><th>#</th><th>Пользователь</th><th>Вид транспорта</th><th>Дата</th><th>Статус</th></tr></thead>
-                    <tbody>
-                    <?php if (!$rows): ?><tr><td colspan="5" class="small">Ничего не найдено</td></tr><?php endif; ?>
-                    <?php foreach ($rows as $r): ?>
-                        <tr>
-                            <td><?= (int) $r['id'] ?></td>
-                            <td><?= h($r['fio']) ?><br><span class="small"><?= h($r['login']) ?></span></td>
-                            <td><?= h($r['item_name']) ?></td>
-                            <td><?= h(ru_date($r['start_date'])) ?></td>
-                            <td>
-                                <form method="post" class="form">
-                                    <input type="hidden" name="page" value="admin"><input type="hidden" name="application_id" value="<?= (int) $r['id'] ?>">
-                                    <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
-                                    <select name="status"><?php foreach (['Новая', 'Идет обучение', 'Обучение завершено'] as $s): ?><option value="<?= h($s) ?>" <?= $r['status'] === $s ? 'selected' : '' ?>><?= h($s) ?></option><?php endforeach; ?></select>
-                                    <button class="btn sm" type="submit" name="change_status" value="1">OK</button>
-                                </form>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-            <?php if ($pages > 1): ?><div class="pag"><?php for ($i = 1; $i <= $pages; $i++): ?><?php if ($i === $pg): ?><span class="on"><?= $i ?></span><?php else: ?><a href="<?= h($base(['p' => $i])) ?>"><?= $i ?></a><?php endif; ?><?php endfor; ?></div><?php endif; ?>
-        </div>
-        <?php if ($flash): ?><div class="toast"><?= h($flash) ?></div><?php endif; ?>
-    <?php endif; ?>
-<?php endif; ?>
 </main>
 <footer class="bot"><span>© <?= date('Y') ?> Пассажирам.РФ</span><a href="?page=admin">Администрирование</a></footer>
 </div>
-<!-- JS: слайдер (автосмена 3с, вперёд/назад) -->
+<!--  ФАЙЛ: slider.js — вырежи всё между <script> и </script> в slider.js, тут оставь:  <script src="slider.js"></script> -->
+<script src="slider.js"></script>
 <script>
 var idx = 0;
 function render() {
@@ -734,3 +512,204 @@ if (document.querySelector('.track')) { render(); window.__t = setInterval(funct
 </script>
 </body>
 </html>
+
+<?php
+/* =====================================================================
+   НИЖЕ — ИСХОДНИКИ СТРАНИЦ. Каждый блок «ФАЙЛ: pages/<имя>.php» вынеси
+   в одноимённый файл в папке pages/. В одном файле этот хвост не нужен —
+   index.php выше подключает страницы через include "pages/$view.php".
+   ===================================================================== */
+return;
+?>
+
+<?php /* ФАЙЛ: pages/index.php */ ?>
+<?php $items = $db->all('SELECT name,category FROM items ORDER BY id'); ?>
+<section class="hero"><h1>Пассажирам.РФ</h1><p>Курсы вождения городского пассажирского транспорта</p></section>
+<div class="slider">
+    <div class="track">
+        <?php for ($i = 1; $i <= 4; $i++): ?>
+            <div class="slide" style="background:linear-gradient(135deg,var(--primary),var(--accent))">Пассажирам.РФ · <?= $i ?></div>
+        <?php endfor; ?>
+    </div>
+    <button class="sbtn sprev" type="button" onclick="slide(-1)">‹</button>
+    <button class="sbtn snext" type="button" onclick="slide(1)">›</button>
+    <div class="dots"><span class="dot on"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+</div>
+<section class="card">
+    <h2>Виды транспорта</h2>
+    <div class="list">
+        <?php foreach ($items as $it): ?>
+            <div class="item"><div class="row"><strong><?= h($it['name']) ?></strong></div><div class="meta"><?= h($it['category']) ?></div></div>
+        <?php endforeach; ?>
+    </div>
+</section>
+<a class="btn" href="?page=<?= uid() ? 'application' : 'register' ?>">Оставить заявку</a>
+
+
+<?php /* ФАЙЛ: pages/register.php */ ?>
+<div class="card">
+    <h2>Регистрация</h2>
+    <form class="form" method="post" novalidate>
+        <input type="hidden" name="page" value="register">
+        <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
+        <div class="field"><label>Логин</label><input type="text" name="login" value="<?= h($old['login'] ?? '') ?>"><?php if (isset($errors['login'])): ?><span class="hint"><?= h($errors['login']) ?></span><?php endif; ?></div>
+        <div class="field"><label>Пароль</label><input type="password" name="password"><?php if (isset($errors['password'])): ?><span class="hint"><?= h($errors['password']) ?></span><?php endif; ?></div>
+        <div class="field"><label>ФИО</label><input type="text" name="fio" value="<?= h($old['fio'] ?? '') ?>"><?php if (isset($errors['fio'])): ?><span class="hint"><?= h($errors['fio']) ?></span><?php endif; ?></div>
+        <div class="field"><label>Дата рождения</label><input type="date" name="birth_date" value="<?= h($old['birth_date'] ?? '') ?>"><?php if (isset($errors['birth_date'])): ?><span class="hint"><?= h($errors['birth_date']) ?></span><?php endif; ?></div>
+        <div class="field"><label>Телефон</label><input type="text" name="phone" value="<?= h($old['phone'] ?? '') ?>"><?php if (isset($errors['phone'])): ?><span class="hint"><?= h($errors['phone']) ?></span><?php endif; ?></div>
+        <div class="field"><label>E-mail</label><input type="email" name="email" value="<?= h($old['email'] ?? '') ?>"><?php if (isset($errors['email'])): ?><span class="hint"><?= h($errors['email']) ?></span><?php endif; ?></div>
+        <?php if (isset($errors['form'])): ?><div class="alert"><?= h($errors['form']) ?></div><?php endif; ?>
+        <button class="btn" type="submit">Зарегистрироваться</button>
+        <div class="link"><a href="?page=login">Уже есть аккаунт? Вход</a></div>
+    </form>
+</div>
+
+
+<?php /* ФАЙЛ: pages/login.php */ ?>
+<div class="card">
+    <h2>Вход</h2>
+    <?php if (isset($errors['form'])): ?><div class="alert"><?= h($errors['form']) ?></div><?php endif; ?>
+    <form class="form" method="post" novalidate>
+        <input type="hidden" name="page" value="login">
+        <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
+        <div class="field"><label>Логин</label><input type="text" name="login" value="<?= h($old['login'] ?? '') ?>"></div>
+        <div class="field"><label>Пароль</label><input type="password" name="password"></div>
+        <button class="btn" type="submit">Войти</button>
+        <div class="link"><a href="?page=register">Еще не зарегистрированы? Регистрация</a></div>
+    </form>
+</div>
+
+
+<?php /* ФАЙЛ: pages/application.php */ ?>
+<?php $items = $db->all('SELECT id,name,category FROM items ORDER BY id'); ?>
+<div class="card">
+    <h2>Оформление заявки</h2>
+    <form class="form" method="post" novalidate>
+        <input type="hidden" name="page" value="application">
+        <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
+        <div class="field"><label>Вид транспорта</label>
+            <select name="item_id"><option value="">— выберите —</option>
+            <?php foreach ($items as $it): ?><option value="<?= (int) $it['id'] ?>" <?= ($old['item_id'] ?? '') == $it['id'] ? 'selected' : '' ?>><?= h($it['name']) ?> (<?= h($it['category']) ?>)</option><?php endforeach; ?>
+            </select><?php if (isset($errors['item_id'])): ?><span class="hint"><?= h($errors['item_id']) ?></span><?php endif; ?>
+        </div>
+        <div class="field"><label>Дата начала (ДД.ММ.ГГГГ)</label><input type="text" name="start_date" placeholder="01.09.2026" value="<?= h($old['start_date'] ?? '') ?>"><?php if (isset($errors['start_date'])): ?><span class="hint"><?= h($errors['start_date']) ?></span><?php endif; ?></div>
+        <div class="field"><label>Способ оплаты</label>
+            <select name="payment_method"><option value="">— выберите —</option>
+            <?php foreach (['Банковская карта', 'Наличные', 'Счёт для юридических лиц'] as $p): ?><option value="<?= h($p) ?>" <?= ($old['payment_method'] ?? '') === $p ? 'selected' : '' ?>><?= h($p) ?></option><?php endforeach; ?>
+            </select><?php if (isset($errors['payment_method'])): ?><span class="hint"><?= h($errors['payment_method']) ?></span><?php endif; ?>
+        </div>
+        <?php if (isset($errors['form'])): ?><div class="alert"><?= h($errors['form']) ?></div><?php endif; ?>
+        <button class="btn" type="submit">Отправить заявку</button>
+    </form>
+</div>
+
+
+<?php /* ФАЙЛ: pages/cabinet.php */ ?>
+<?php
+$apps = $db->all('SELECT a.id,a.start_date,a.payment_method,a.status,i.name item_name,r.review_text
+    FROM applications a JOIN items i ON i.id=a.item_id LEFT JOIN reviews r ON r.application_id=a.id
+    WHERE a.user_id=? ORDER BY a.created_at DESC', [uid()]);
+$me = $db->one('SELECT login,fio FROM users WHERE id=?', [uid()]);
+?>
+<section class="hero"><h2>Здравствуйте, <?= h($me['fio'] ?: $me['login']) ?></h2></section>
+<div class="slider">
+    <div class="track">
+        <?php for ($i = 1; $i <= 4; $i++): ?><div class="slide" style="background:linear-gradient(135deg,var(--primary),var(--accent))">Пассажирам.РФ · <?= $i ?></div><?php endfor; ?>
+    </div>
+    <button class="sbtn sprev" type="button" onclick="slide(-1)">‹</button>
+    <button class="sbtn snext" type="button" onclick="slide(1)">›</button>
+    <div class="dots"><span class="dot on"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+</div>
+<section class="card">
+    <h2>Мои заявки</h2>
+    <?php if (!$apps): ?><p class="small">Заявок пока нет. <a href="?page=application">Оформить</a></p>
+    <?php else: ?>
+    <div class="list">
+        <?php foreach ($apps as $a): ?>
+        <div class="item">
+            <div class="row"><strong><?= h($a['item_name']) ?></strong><span class="badge <?= $badge[$a['status']] ?? 'b-new' ?>"><?= h($a['status']) ?></span></div>
+            <div class="meta">Начало: <?= h(ru_date($a['start_date'])) ?> · <?= h($a['payment_method']) ?></div>
+            <?php if ($a['review_text']): ?><p class="small">Ваш отзыв: <?= h($a['review_text']) ?></p>
+            <?php elseif ($a['status'] !== 'Новая'): ?>
+                <form class="form" method="post" style="margin-top:8px">
+                    <input type="hidden" name="page" value="cabinet"><input type="hidden" name="application_id" value="<?= (int) $a['id'] ?>">
+                    <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
+                    <div class="field"><textarea name="review_text" rows="2" placeholder="Оставить отзыв"></textarea></div>
+                    <button class="btn sm" type="submit">Отправить отзыв</button>
+                </form>
+            <?php else: ?><p class="small">Отзыв — после смены статуса администратором.</p><?php endif; ?>
+        </div>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+</section>
+<a class="btn" href="?page=application">Новая заявка</a>
+<?php if (isset($_GET['created'])): ?><div class="toast">Заявка отправлена</div><?php endif; ?>
+
+
+<?php /* ФАЙЛ: pages/admin.php */ ?>
+<?php if (empty($_SESSION['is_admin'])): ?>
+    <div class="card">
+        <h2>Панель администратора</h2>
+        <?php if (isset($errors['form'])): ?><div class="alert"><?= h($errors['form']) ?></div><?php endif; ?>
+        <form class="form" method="post" novalidate>
+            <input type="hidden" name="page" value="admin">
+            <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
+            <div class="field"><label>Логин</label><input type="text" name="admin_login"></div>
+            <div class="field"><label>Пароль</label><input type="password" name="admin_password"></div>
+            <button class="btn" type="submit">Войти</button>
+        </form>
+    </div>
+<?php else:
+    $fStatus = $_GET['status'] ?? ''; $q = trim($_GET['q'] ?? ''); $sort = $_GET['sort'] ?? 'created'; $pg = max(1, (int) ($_GET['p'] ?? 1)); $per = 8;
+    $order = ['created' => 'a.created_at DESC', 'date' => 'a.start_date ASC', 'status' => 'a.status ASC'][$sort] ?? 'a.created_at DESC';
+    $w = []; $pr = [];
+    if (in_array($fStatus, ['Новая', 'Идет обучение', 'Обучение завершено'], true)) { $w[] = 'a.status=?'; $pr[] = $fStatus; }
+    if ($q !== '') { $w[] = '(u.login LIKE ? OR u.fio LIKE ?)'; $pr[] = "%$q%"; $pr[] = "%$q%"; }
+    $ws = $w ? 'WHERE ' . implode(' AND ', $w) : '';
+    $total = (int) $db->value("SELECT COUNT(*) FROM applications a JOIN users u ON u.id=a.user_id $ws", $pr);
+    $pages = max(1, (int) ceil($total / $per)); $pg = min($pg, $pages); $off = ($pg - 1) * $per;
+    $rows = $db->all("SELECT a.id,a.start_date,a.status,u.login,u.fio,i.name item_name
+        FROM applications a JOIN users u ON u.id=a.user_id JOIN items i ON i.id=a.item_id
+        $ws ORDER BY $order LIMIT $per OFFSET $off", $pr);
+    $base = function ($o) use ($fStatus, $q, $sort) { return '?page=admin&' . http_build_query(array_merge(['status' => $fStatus, 'q' => $q, 'sort' => $sort], $o)); };
+?>
+    <div class="card">
+        <div class="row" style="display:flex;justify-content:space-between;align-items:center"><h2>Заявки</h2><a class="btn ghost sm" href="?page=admin&adminout=1">Выход</a></div>
+        <form class="toolbar" method="get" style="margin-top:12px">
+            <input type="hidden" name="page" value="admin">
+            <input type="text" name="q" placeholder="Поиск: логин / ФИО" value="<?= h($q) ?>">
+            <select name="status"><option value="">Все статусы</option><?php foreach (['Новая', 'Идет обучение', 'Обучение завершено'] as $s): ?><option value="<?= h($s) ?>" <?= $fStatus === $s ? 'selected' : '' ?>><?= h($s) ?></option><?php endforeach; ?></select>
+            <select name="sort"><option value="created" <?= $sort === 'created' ? 'selected' : '' ?>>По дате создания</option><option value="date" <?= $sort === 'date' ? 'selected' : '' ?>>По дате начала</option><option value="status" <?= $sort === 'status' ? 'selected' : '' ?>>По статусу</option></select>
+            <button class="btn sm" type="submit">Применить</button>
+        </form>
+    </div>
+    <div class="card">
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>#</th><th>Пользователь</th><th>Вид транспорта</th><th>Дата</th><th>Статус</th></tr></thead>
+                <tbody>
+                <?php if (!$rows): ?><tr><td colspan="5" class="small">Ничего не найдено</td></tr><?php endif; ?>
+                <?php foreach ($rows as $r): ?>
+                    <tr>
+                        <td><?= (int) $r['id'] ?></td>
+                        <td><?= h($r['fio']) ?><br><span class="small"><?= h($r['login']) ?></span></td>
+                        <td><?= h($r['item_name']) ?></td>
+                        <td><?= h(ru_date($r['start_date'])) ?></td>
+                        <td>
+                            <form method="post" class="form">
+                                <input type="hidden" name="page" value="admin"><input type="hidden" name="application_id" value="<?= (int) $r['id'] ?>">
+                                <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
+                                <select name="status"><?php foreach (['Новая', 'Идет обучение', 'Обучение завершено'] as $s): ?><option value="<?= h($s) ?>" <?= $r['status'] === $s ? 'selected' : '' ?>><?= h($s) ?></option><?php endforeach; ?></select>
+                                <button class="btn sm" type="submit" name="change_status" value="1">OK</button>
+                            </form>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php if ($pages > 1): ?><div class="pag"><?php for ($i = 1; $i <= $pages; $i++): ?><?php if ($i === $pg): ?><span class="on"><?= $i ?></span><?php else: ?><a href="<?= h($base(['p' => $i])) ?>"><?= $i ?></a><?php endif; ?><?php endfor; ?></div><?php endif; ?>
+    </div>
+    <?php if ($flash): ?><div class="toast"><?= h($flash) ?></div><?php endif; ?>
+<?php endif; ?>
