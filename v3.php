@@ -1,40 +1,29 @@
 <?php
-/* =====================================================================
-   ВАРИАНТ (ЗАМЕНИ ПОД ВАРИАНТ): название, БД, сущность, статусы, позиции
-   ===================================================================== */
-$THEME = [
-    'site_name'   => 'Пассажирам.РФ',
-    'tagline'     => 'Курсы вождения городского пассажирского транспорта',
-    'db_name'     => 'passenger_rf',
-    'item_label'  => 'Вид транспорта',
-    'item_plural' => 'Виды транспорта',
-    'show_birth'  => true,
-    'statuses'    => ['Новая', 'Идет обучение', 'Обучение завершено'],
-    'payments'    => ['Банковская карта', 'Наличные', 'Счёт для юридических лиц'],
-    'items'       => [
-        ['Вождение городского автобуса', 'Автобус'],
-        ['Вождение междугороднего автобуса', 'Автобус'],
-        ['Управление электробусом', 'Электробус'],
-        ['Управление трамваем', 'Трамвай'],
-        ['Вождение сочленённого автобуса', 'Автобус'],
-    ],
-];
-/* ЗАМЕНИ ПОД ВАРИАНТ: палитра (HEX) и радиус скругления */
-$PAL = [
-    'primary' => '#0d8a8a', 'dark' => '#0a6a6a', 'accent' => '#f5a524',
-    'bg' => '#eef5f5', 'surface' => '#ffffff', 'text' => '#14292a',
-    'muted' => '#6b8082', 'border' => '#d4e6e6', 'danger' => '#d64550',
-    'radius' => '12px',
-];
-$DB_HOST = 'localhost';
-$DB_USER = 'root';
-$DB_PASS = '';
-define('ADMIN_LOGIN', 'Admin26');
-define('ADMIN_PASSWORD', 'Demo20');
+/*
+  
+  
+  -------------------------------------------------------------------------------------
+  КАК РАЗБИТЬ НА ОТДЕЛЬНЫЕ ФАЙЛЫ (режь по баннерам «==== ФАЙЛ: xxx ====»):
+    1) db.php        — $SCHEMA + class Db
+    2) functions.php — h(), uid(), redirect(), ru_date(), csrf_token(), csrf_verify()
+    3) config.php    — креды БД, админ, сессия, создание $db
+                       (в начало config.php добавь:  require 'db.php';  require 'functions.php'; )
+    4) index.php     — роутер + страницы + JS
+                       (в начало index.php добавь:   require 'config.php'; )
+    5) style.css     — то, что внутри <style>…</style>
+                       (в index.php замени <style>…</style> на <link rel="stylesheet" href="style.css">)
+  -------------------------------------------------------------------------------------
+  БЕЗОПАСНОСТЬ:
+    • XSS  — любой вывод в HTML через h() (htmlspecialchars, ENT_QUOTES)
+    • Пароли — password_hash(PASSWORD_DEFAULT) + password_verify (хранится только хеш)
+    • CSRF — токен в сессии, скрытое поле во всех формах, проверка csrf_verify() на каждый POST
+    • SQL  — подготовленные запросы (prepared statements, bind_param) в class Db
+  =====================================================================================
+*/
 
-/* =====================================================================
-   MYSQL: схема и автосоздание базы данных при первом запуске
-   ===================================================================== */
+
+/* ===================== ФАЙЛ: db.php ===================== */
+
 $SCHEMA = "
 CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -76,6 +65,7 @@ CREATE TABLE IF NOT EXISTS reviews (
 class Db
 {
     private mysqli $c;
+
     public function __construct(string $h, string $u, string $p, string $name, string $schema, array $seed)
     {
         $this->c = new mysqli($h, $u, $p);
@@ -89,6 +79,7 @@ class Db
         while ($this->c->more_results() && $this->c->next_result()) {;}
         $this->seed($seed);
     }
+
     private function seed(array $items): void
     {
         if ((int) $this->value('SELECT COUNT(*) FROM items') === 0) {
@@ -103,13 +94,18 @@ class Db
             ]);
         }
     }
+
+    // все запросы — подготовленные (защита от SQL-инъекций)
     private function run(string $sql, array $p): mysqli_stmt
     {
         $st = $this->c->prepare($sql);
-        if ($p) { $st->bind_param(str_repeat('s', count($p)), ...$p); }
+        if ($p) {
+            $st->bind_param(str_repeat('s', count($p)), ...$p);
+        }
         $st->execute();
         return $st;
     }
+
     public function all(string $sql, array $p = []): array { return $this->run($sql, $p)->get_result()->fetch_all(MYSQLI_ASSOC); }
     public function one(string $sql, array $p = []): ?array { return $this->run($sql, $p)->get_result()->fetch_assoc() ?: null; }
     public function value(string $sql, array $p = []) { $r = $this->run($sql, $p)->get_result()->fetch_row(); return $r ? $r[0] : null; }
@@ -117,28 +113,74 @@ class Db
     public function exec(string $sql, array $p = []): int { return (int) $this->run($sql, $p)->affected_rows; }
 }
 
-/* =====================================================================
-   PHP: логика — сессии, роутер, обработка форм
-   ===================================================================== */
-session_start();
-$db = new Db($DB_HOST, $DB_USER, $DB_PASS, $THEME['db_name'], $SCHEMA, $THEME['items']);
+
+/*  functions.php  */
+
 
 function h($v): string { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); }
+
 function uid(): ?int { return isset($_SESSION['user_id']) ? (int) $_SESSION['user_id'] : null; }
-function ru_date(?string $d): string { $t = $d ? strtotime($d) : false; return $t ? date('d.m.Y', $t) : (string) $d; }
+
 function redirect(string $to): void { header("Location: ?page=$to"); exit; }
+
+function ru_date(?string $d): string { $t = $d ? strtotime($d) : false; return $t ? date('d.m.Y', $t) : (string) $d; }
+
+// CSRF: токен в сессии + проверка
+function csrf_token(): string
+{
+    if (empty($_SESSION['csrf'])) {
+        $_SESSION['csrf'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf'];
+}
+function csrf_verify(): bool
+{
+    return !empty($_SESSION['csrf']) && isset($_POST['csrf']) && hash_equals($_SESSION['csrf'], $_POST['csrf']);
+}
+
+
+/* ===================== ФАЙЛ: config.php ===================== */
+/*  в начало config.php :  require 'db.php';  require 'functions.php'; */
+
+session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
+session_start();
+
+$DB_HOST = 'localhost';
+$DB_USER = 'root';
+$DB_PASS = '';
+define('ADMIN_LOGIN', 'Admin26');
+define('ADMIN_PASSWORD', 'Demo20');
+
+$db = new Db($DB_HOST, $DB_USER, $DB_PASS, 'passenger_rf', $SCHEMA, [
+    ['Вождение городского автобуса', 'Автобус'],
+    ['Вождение междугороднего автобуса', 'Автобус'],
+    ['Управление электробусом', 'Электробус'],
+    ['Управление трамваем', 'Трамвай'],
+    ['Вождение сочленённого автобуса', 'Автобус'],
+]);
+
+
+/* ФАЙЛ: index.php */
+/* в начало index.php добавить:  require 'config.php'; */
 
 $page = $_POST['page'] ?? $_GET['page'] ?? 'index';
 $flash = '';
 $errors = [];
 $old = [];
 
+
+$is_post = $_SERVER['REQUEST_METHOD'] === 'POST';
+if ($is_post && !csrf_verify()) {
+    $errors['form'] = 'Сессия истекла, обновите страницу и повторите';
+    $is_post = false;
+}
+
 /* --- выход --- */
 if ($page === 'logout') { session_destroy(); header('Location: ?page=index'); exit; }
 if (($_GET['adminout'] ?? '') === '1') { unset($_SESSION['is_admin']); redirect('admin'); }
 
 /* --- регистрация --- */
-if ($page === 'register' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($page === 'register' && $is_post) {
     foreach (['login', 'fio', 'phone', 'email', 'birth_date'] as $k) { $old[$k] = trim($_POST[$k] ?? ''); }
     $pwd = $_POST['password'] ?? '';
     if (!preg_match('/^[A-Za-z0-9]{6,}$/', $old['login'])) { $errors['login'] = 'Латиница и цифры, минимум 6 символов'; }
@@ -147,7 +189,7 @@ if ($page === 'register' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($old['fio'] === '') { $errors['fio'] = 'Укажите ФИО'; }
     if ($old['phone'] === '') { $errors['phone'] = 'Укажите телефон'; }
     if (!filter_var($old['email'], FILTER_VALIDATE_EMAIL)) { $errors['email'] = 'Некорректный e-mail'; }
-    if ($THEME['show_birth'] && $old['birth_date'] === '') { $errors['birth_date'] = 'Укажите дату рождения'; }
+    if ($old['birth_date'] === '') { $errors['birth_date'] = 'Укажите дату рождения'; }
     if (!$errors) {
         $_SESSION['user_id'] = $db->insert(
             'INSERT INTO users(login,password,fio,phone,email,birth_date) VALUES(?,?,?,?,?,?)',
@@ -158,7 +200,7 @@ if ($page === 'register' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 /* --- вход --- */
-if ($page === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($page === 'login' && $is_post) {
     $old['login'] = trim($_POST['login'] ?? '');
     $u = $db->one('SELECT id,password FROM users WHERE login=?', [$old['login']]);
     if ($u && password_verify($_POST['password'] ?? '', $u['password'])) {
@@ -169,40 +211,40 @@ if ($page === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 /* --- оформление заявки --- */
-if ($page === 'application' && $_SERVER['REQUEST_METHOD'] === 'POST' && uid()) {
+if ($page === 'application' && $is_post && uid()) {
     $old['item_id'] = $_POST['item_id'] ?? '';
     $old['start_date'] = trim($_POST['start_date'] ?? '');
     $old['payment_method'] = $_POST['payment_method'] ?? '';
     $date = null;
-    if (!$db->value('SELECT id FROM items WHERE id=?', [$old['item_id']])) { $errors['item_id'] = 'Выберите ' . mb_strtolower($THEME['item_label']); }
+    if (!$db->value('SELECT id FROM items WHERE id=?', [$old['item_id']])) { $errors['item_id'] = 'Выберите вид транспорта'; }
     if (!preg_match('/^\d{2}\.\d{2}\.\d{4}$/', $old['start_date'])) { $errors['start_date'] = 'Формат: ДД.ММ.ГГГГ'; }
     else { [$d, $m, $y] = explode('.', $old['start_date']); if (!checkdate((int) $m, (int) $d, (int) $y)) { $errors['start_date'] = 'Некорректная дата'; } else { $date = "$y-$m-$d"; } }
-    if (!in_array($old['payment_method'], $THEME['payments'], true)) { $errors['payment_method'] = 'Выберите способ оплаты'; }
+    if (!in_array($old['payment_method'], ['Банковская карта', 'Наличные', 'Счёт для юридических лиц'], true)) { $errors['payment_method'] = 'Выберите способ оплаты'; }
     if (!$errors) {
         $db->insert('INSERT INTO applications(user_id,item_id,start_date,payment_method,status) VALUES(?,?,?,?,?)',
-            [uid(), $old['item_id'], $date, $old['payment_method'], $THEME['statuses'][0]]);
+            [uid(), $old['item_id'], $date, $old['payment_method'], 'Новая']);
         header('Location: ?page=cabinet&created=1'); exit;
     }
 }
 
 /* --- отзыв --- */
-if ($page === 'cabinet' && $_SERVER['REQUEST_METHOD'] === 'POST' && uid() && isset($_POST['application_id'])) {
+if ($page === 'cabinet' && $is_post && uid() && isset($_POST['application_id'])) {
     $aid = (int) $_POST['application_id'];
     $txt = trim($_POST['review_text'] ?? '');
     $a = $db->one('SELECT status FROM applications WHERE id=? AND user_id=?', [$aid, uid()]);
-    if ($a && $a['status'] !== $THEME['statuses'][0] && $txt !== '' && !$db->value('SELECT id FROM reviews WHERE application_id=?', [$aid])) {
+    if ($a && $a['status'] !== 'Новая' && $txt !== '' && !$db->value('SELECT id FROM reviews WHERE application_id=?', [$aid])) {
         $db->insert('INSERT INTO reviews(application_id,user_id,review_text) VALUES(?,?,?)', [$aid, uid(), $txt]);
     }
     redirect('cabinet');
 }
 
 /* --- админ: вход и смена статуса --- */
-if ($page === 'admin' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['admin_login'])) {
+if ($page === 'admin' && $is_post && isset($_POST['admin_login'])) {
     if ($_POST['admin_login'] === ADMIN_LOGIN && ($_POST['admin_password'] ?? '') === ADMIN_PASSWORD) { $_SESSION['is_admin'] = true; redirect('admin'); }
     $errors['form'] = 'Неверный логин или пароль администратора';
 }
-if ($page === 'admin' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_status']) && !empty($_SESSION['is_admin'])) {
-    if (in_array($_POST['status'] ?? '', $THEME['statuses'], true)) {
+if ($page === 'admin' && $is_post && isset($_POST['change_status']) && !empty($_SESSION['is_admin'])) {
+    if (in_array($_POST['status'] ?? '', ['Новая', 'Идет обучение', 'Обучение завершено'], true)) {
         $db->exec('UPDATE applications SET status=? WHERE id=?', [$_POST['status'], (int) $_POST['application_id']]);
         $flash = 'Статус обновлён';
     }
@@ -211,74 +253,271 @@ if ($page === 'admin' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['
 /* доступ только для авторизованных */
 if (in_array($page, ['cabinet', 'application'], true) && !uid()) { redirect('login'); }
 
-$badge = [$THEME['statuses'][0] => 'b-new', $THEME['statuses'][1] => 'b-prog', $THEME['statuses'][2] => 'b-done'];
+$badge = ['Новая' => 'b-new', 'Идет обучение' => 'b-prog', 'Обучение завершено' => 'b-done'];
+$csrf = csrf_token();
 ?>
 <!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title><?= h($THEME['site_name']) ?></title>
-<!-- =====================================================================
-     CSS: оформление (палитра берётся из $PAL, мобильный экран 390x844)
-     ===================================================================== -->
+<title>Пассажирам.РФ</title>
+<!-- ===================== ФАЙЛ: style.css =====================
+     при разбиении вырежи всё между <style> и </style> в style.css,
+     а здесь оставь:  <link rel="stylesheet" href="style.css"> -->
 <style>
-:root{
-  --primary:<?= $PAL['primary'] ?>;--dark:<?= $PAL['dark'] ?>;--accent:<?= $PAL['accent'] ?>;
-  --bg:<?= $PAL['bg'] ?>;--surface:<?= $PAL['surface'] ?>;--text:<?= $PAL['text'] ?>;
-  --muted:<?= $PAL['muted'] ?>;--border:<?= $PAL['border'] ?>;--danger:<?= $PAL['danger'] ?>;--radius:<?= $PAL['radius'] ?>;
+/* ЗАМЕНИ ПОД ВАРИАНТ: палитра (HEX) и радиус скругления */
+:root {
+    --primary: #0d8a8a;
+    --dark:    #0a6a6a;
+    --accent:  #f5a524;
+    --bg:      #eef3f4;
+    --surface: #ffffff;
+    --text:    #14292a;
+    --muted:   #6b8082;
+    --border:  #dde8e8;
+    --danger:  #d64550;
+    --radius:  16px;
+    --shadow:  0 6px 20px rgba(13, 138, 138, .10);
+    --shadow-sm: 0 2px 8px rgba(20, 41, 42, .06);
 }
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:"Rubik",system-ui,Arial,sans-serif;font-size:16px;color:var(--text);background:var(--bg);display:flex;justify-content:center;min-height:100vh}
-.screen{width:100%;max-width:390px;min-height:100vh;display:flex;flex-direction:column;box-shadow:0 0 24px rgba(0,0,0,.08);background:var(--bg)}
-h1{font-size:36px;line-height:1.1}h2{font-size:24px}h3{font-size:18px}small,.small{font-size:12px;color:var(--muted)}
-a{color:var(--dark);text-decoration:none}
-header.top{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--primary);color:#fff;position:sticky;top:0;z-index:10}
-.brand{color:#fff;font-size:18px;font-weight:600}
-nav a{color:#fff;font-size:13px;margin-left:12px}
-main{flex:1;padding:16px;display:flex;flex-direction:column;gap:16px}
-footer.bot{display:flex;justify-content:space-between;padding:12px 16px;background:var(--surface);border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
-.hero{text-align:center}.hero p{color:var(--muted);margin-top:8px}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
-.card h2,.card h3{margin-bottom:10px}
-.slider{position:relative;border-radius:var(--radius);overflow:hidden;background:#000}
-.track{display:flex;transition:transform .4s ease}
-.slide{min-width:100%;aspect-ratio:16/10;display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;font-weight:600}
-.sbtn{position:absolute;top:50%;transform:translateY(-50%);border:none;background:rgba(0,0,0,.45);color:#fff;width:34px;height:34px;border-radius:50%;font-size:18px;cursor:pointer}
-.sprev{left:8px}.snext{right:8px}
-.dots{position:absolute;bottom:8px;left:0;right:0;display:flex;justify-content:center;gap:6px}
-.dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.5)}.dot.on{background:#fff}
-.form{display:flex;flex-direction:column;gap:12px}
-.field{display:flex;flex-direction:column;gap:4px}
-.field label{font-size:13px;font-weight:500}
-.field input,.field select,.field textarea{font-family:inherit;font-size:15px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text)}
-.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--primary)}
-.hint{font-size:12px;color:var(--danger)}
-.btn{font-family:inherit;font-size:15px;font-weight:500;padding:12px 16px;border:none;border-radius:10px;background:var(--primary);color:#fff;cursor:pointer;text-align:center}
-.btn:hover{background:var(--dark)}.btn.sm{padding:7px 10px;font-size:13px}.btn.ghost{background:transparent;color:var(--dark);border:1px solid var(--border)}
-.link{text-align:center;font-size:13px}
-.alert{padding:10px 12px;border-radius:10px;font-size:13px;background:#fdecee;color:var(--danger);border:1px solid #f6c9ce}
-.badge{display:inline-block;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:500}
-.b-new{background:#eef1f4;color:var(--muted)}.b-prog{background:#fff3da;color:#9a6b00}.b-done{background:#e7f7ef;color:var(--dark)}
-.list{display:flex;flex-direction:column;gap:10px}
-.item{border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--surface)}
-.item .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
-.meta{font-size:12px;color:var(--muted);margin-top:4px}
-.toolbar{display:flex;flex-wrap:wrap;gap:8px}
-.toolbar input,.toolbar select{padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--border);vertical-align:top}
-.pag{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:12px}
-.pag a,.pag span{padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px}
-.pag .on{background:var(--primary);color:#fff;border-color:var(--primary)}
-.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--text);color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;z-index:50}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: "Rubik", system-ui, -apple-system, Segoe UI, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.45;
+    color: var(--text);
+    background: var(--bg);
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+}
+
+.screen {
+    width: 100%;
+    max-width: 390px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    box-shadow: 0 0 40px rgba(0, 0, 0, .10);
+}
+
+/* типографика (иерархия размеров) */
+h1 { font-size: 36px; font-weight: 700; line-height: 1.1; letter-spacing: -.5px; }
+h2 { font-size: 24px; font-weight: 600; }
+h3 { font-size: 18px; font-weight: 600; }
+small, .small { font-size: 12px; color: var(--muted); }
+
+a { color: var(--dark); text-decoration: none; }
+
+/* шапка */
+.top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    background: linear-gradient(135deg, var(--primary), var(--dark));
+    color: #fff;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    box-shadow: var(--shadow-sm);
+}
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #fff;
+    font-size: 18px;
+    font-weight: 700;
+}
+.brand::before {
+    content: "";
+    width: 22px;
+    height: 22px;
+    border-radius: 7px;
+    background: var(--accent);
+    box-shadow: inset 0 0 0 3px rgba(255, 255, 255, .35);
+}
+.nav { display: flex; gap: 14px; }
+.nav a { color: #fff; font-size: 13px; opacity: .9; }
+.nav a:hover { opacity: 1; }
+
+/* контент */
+main { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+
+.bot {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.hero { text-align: center; padding: 8px 0 0; }
+.hero p { color: var(--muted); margin-top: 6px; }
+
+.card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    box-shadow: var(--shadow-sm);
+}
+.card h2, .card h3 { margin-bottom: 12px; }
+
+/* слайдер */
+.slider { position: relative; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+.track { display: flex; transition: transform .45s cubic-bezier(.4, 0, .2, 1); }
+.slide {
+    min-width: 100%;
+    aspect-ratio: 16 / 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: .5px;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, .25);
+}
+.sbtn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    border: none;
+    background: rgba(255, 255, 255, .9);
+    color: var(--dark);
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    transition: transform .15s;
+}
+.sbtn:hover { transform: translateY(-50%) scale(1.08); }
+.sprev { left: 10px; }
+.snext { right: 10px; }
+.dots { position: absolute; bottom: 10px; left: 0; right: 0; display: flex; justify-content: center; gap: 6px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, .55); transition: width .25s; }
+.dot.on { width: 18px; border-radius: 4px; background: #fff; }
+
+/* формы */
+.form { display: flex; flex-direction: column; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label { font-size: 13px; font-weight: 500; color: var(--muted); }
+.field input, .field select, .field textarea {
+    font-family: inherit;
+    font-size: 15px;
+    padding: 11px 13px;
+    border: 1.5px solid var(--border);
+    border-radius: 11px;
+    background: var(--surface);
+    color: var(--text);
+    transition: border-color .15s, box-shadow .15s;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(13, 138, 138, .14);
+}
+.field textarea { resize: vertical; }
+.hint { font-size: 12px; color: var(--danger); }
+
+/* кнопки */
+.btn {
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    padding: 13px 18px;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--primary), var(--dark));
+    color: #fff;
+    cursor: pointer;
+    text-align: center;
+    box-shadow: var(--shadow);
+    transition: transform .12s, box-shadow .12s, opacity .12s;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(0); opacity: .9; }
+.btn.sm { padding: 8px 12px; font-size: 13px; border-radius: 9px; box-shadow: none; }
+.btn.ghost { background: transparent; color: var(--dark); border: 1.5px solid var(--border); box-shadow: none; }
+
+.link { text-align: center; font-size: 13px; }
+
+/* уведомления */
+.alert {
+    padding: 11px 14px;
+    border-radius: 11px;
+    font-size: 13px;
+    background: #fdecee;
+    color: var(--danger);
+    border: 1px solid #f6c9ce;
+}
+
+/* статусы */
+.badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.b-new { background: #eef1f4; color: var(--muted); }
+.b-prog { background: #fff3da; color: #9a6b00; }
+.b-done { background: #e3f6ec; color: #1f8a52; }
+
+/* списки/карточки заявок */
+.list { display: flex; flex-direction: column; gap: 10px; }
+.item { border: 1px solid var(--border); border-radius: 13px; padding: 13px; background: var(--surface); transition: box-shadow .15s; }
+.item:hover { box-shadow: var(--shadow-sm); }
+.item .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.meta { font-size: 12px; color: var(--muted); margin-top: 5px; }
+
+/* админ */
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+.toolbar input, .toolbar select {
+    padding: 9px 11px;
+    border: 1.5px solid var(--border);
+    border-radius: 9px;
+    font-size: 13px;
+    font-family: inherit;
+}
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 9px 7px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+.pag { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
+.pag a, .pag span { padding: 7px 11px; border: 1px solid var(--border); border-radius: 9px; font-size: 13px; }
+.pag .on { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+/* тост */
+.toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    background: var(--text);
+    color: #fff;
+    padding: 12px 18px;
+    border-radius: 12px;
+    font-size: 13px;
+    z-index: 50;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .25);
+    animation: toast-in .3s ease;
+}
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
 </style>
 </head>
 <body>
 <div class="screen">
 <header class="top">
-    <a class="brand" href="?page=index"><?= h($THEME['site_name']) ?></a>
-    <nav>
+    <a class="brand" href="?page=index">Пассажирам.РФ</a>
+    <nav class="nav">
         <a href="?page=index">Главная</a>
         <?php if (uid()): ?>
             <a href="?page=application">Заявка</a><a href="?page=cabinet">Кабинет</a><a href="?page=logout">Выход</a>
@@ -289,17 +528,15 @@ th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--border);vert
 </header>
 <main>
 <?php
-/* =====================================================================
-   HTML: страницы (рендер по $page)
-   ===================================================================== */
+/* --- страницы (рендер по $page) --- */
 if ($page === 'index'):
     $items = $db->all('SELECT name,category FROM items ORDER BY id');
 ?>
-    <section class="hero"><h1><?= h($THEME['site_name']) ?></h1><p><?= h($THEME['tagline']) ?></p></section>
+    <section class="hero"><h1>Пассажирам.РФ</h1><p>Курсы вождения городского пассажирского транспорта</p></section>
     <div class="slider">
         <div class="track">
             <?php for ($i = 1; $i <= 4; $i++): ?>
-                <div class="slide" style="background:linear-gradient(135deg,var(--primary),var(--accent))"><?= h($THEME['site_name']) ?> · <?= $i ?></div>
+                <div class="slide" style="background:linear-gradient(135deg,var(--primary),var(--accent))">Пассажирам.РФ · <?= $i ?></div>
             <?php endfor; ?>
         </div>
         <button class="sbtn sprev" type="button" onclick="slide(-1)">‹</button>
@@ -307,7 +544,7 @@ if ($page === 'index'):
         <div class="dots"><span class="dot on"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
     </div>
     <section class="card">
-        <h2><?= h($THEME['item_plural']) ?></h2>
+        <h2>Виды транспорта</h2>
         <div class="list">
             <?php foreach ($items as $it): ?>
                 <div class="item"><div class="row"><strong><?= h($it['name']) ?></strong></div><div class="meta"><?= h($it['category']) ?></div></div>
@@ -321,14 +558,14 @@ if ($page === 'index'):
         <h2>Регистрация</h2>
         <form class="form" method="post" novalidate>
             <input type="hidden" name="page" value="register">
+            <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
             <div class="field"><label>Логин</label><input type="text" name="login" value="<?= h($old['login'] ?? '') ?>"><?php if (isset($errors['login'])): ?><span class="hint"><?= h($errors['login']) ?></span><?php endif; ?></div>
             <div class="field"><label>Пароль</label><input type="password" name="password"><?php if (isset($errors['password'])): ?><span class="hint"><?= h($errors['password']) ?></span><?php endif; ?></div>
             <div class="field"><label>ФИО</label><input type="text" name="fio" value="<?= h($old['fio'] ?? '') ?>"><?php if (isset($errors['fio'])): ?><span class="hint"><?= h($errors['fio']) ?></span><?php endif; ?></div>
-            <?php if ($THEME['show_birth']): ?>
             <div class="field"><label>Дата рождения</label><input type="date" name="birth_date" value="<?= h($old['birth_date'] ?? '') ?>"><?php if (isset($errors['birth_date'])): ?><span class="hint"><?= h($errors['birth_date']) ?></span><?php endif; ?></div>
-            <?php endif; ?>
             <div class="field"><label>Телефон</label><input type="text" name="phone" value="<?= h($old['phone'] ?? '') ?>"><?php if (isset($errors['phone'])): ?><span class="hint"><?= h($errors['phone']) ?></span><?php endif; ?></div>
             <div class="field"><label>E-mail</label><input type="email" name="email" value="<?= h($old['email'] ?? '') ?>"><?php if (isset($errors['email'])): ?><span class="hint"><?= h($errors['email']) ?></span><?php endif; ?></div>
+            <?php if (isset($errors['form'])): ?><div class="alert"><?= h($errors['form']) ?></div><?php endif; ?>
             <button class="btn" type="submit">Зарегистрироваться</button>
             <div class="link"><a href="?page=login">Уже есть аккаунт? Вход</a></div>
         </form>
@@ -340,6 +577,7 @@ if ($page === 'index'):
         <?php if (isset($errors['form'])): ?><div class="alert"><?= h($errors['form']) ?></div><?php endif; ?>
         <form class="form" method="post" novalidate>
             <input type="hidden" name="page" value="login">
+            <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
             <div class="field"><label>Логин</label><input type="text" name="login" value="<?= h($old['login'] ?? '') ?>"></div>
             <div class="field"><label>Пароль</label><input type="password" name="password"></div>
             <button class="btn" type="submit">Войти</button>
@@ -354,7 +592,8 @@ if ($page === 'index'):
         <h2>Оформление заявки</h2>
         <form class="form" method="post" novalidate>
             <input type="hidden" name="page" value="application">
-            <div class="field"><label><?= h($THEME['item_label']) ?></label>
+            <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
+            <div class="field"><label>Вид транспорта</label>
                 <select name="item_id"><option value="">— выберите —</option>
                 <?php foreach ($items as $it): ?><option value="<?= (int) $it['id'] ?>" <?= ($old['item_id'] ?? '') == $it['id'] ? 'selected' : '' ?>><?= h($it['name']) ?> (<?= h($it['category']) ?>)</option><?php endforeach; ?>
                 </select><?php if (isset($errors['item_id'])): ?><span class="hint"><?= h($errors['item_id']) ?></span><?php endif; ?>
@@ -362,9 +601,10 @@ if ($page === 'index'):
             <div class="field"><label>Дата начала (ДД.ММ.ГГГГ)</label><input type="text" name="start_date" placeholder="01.09.2026" value="<?= h($old['start_date'] ?? '') ?>"><?php if (isset($errors['start_date'])): ?><span class="hint"><?= h($errors['start_date']) ?></span><?php endif; ?></div>
             <div class="field"><label>Способ оплаты</label>
                 <select name="payment_method"><option value="">— выберите —</option>
-                <?php foreach ($THEME['payments'] as $p): ?><option value="<?= h($p) ?>" <?= ($old['payment_method'] ?? '') === $p ? 'selected' : '' ?>><?= h($p) ?></option><?php endforeach; ?>
+                <?php foreach (['Банковская карта', 'Наличные', 'Счёт для юридических лиц'] as $p): ?><option value="<?= h($p) ?>" <?= ($old['payment_method'] ?? '') === $p ? 'selected' : '' ?>><?= h($p) ?></option><?php endforeach; ?>
                 </select><?php if (isset($errors['payment_method'])): ?><span class="hint"><?= h($errors['payment_method']) ?></span><?php endif; ?>
             </div>
+            <?php if (isset($errors['form'])): ?><div class="alert"><?= h($errors['form']) ?></div><?php endif; ?>
             <button class="btn" type="submit">Отправить заявку</button>
         </form>
     </div>
@@ -378,7 +618,7 @@ if ($page === 'index'):
     <section class="hero"><h2>Здравствуйте, <?= h($me['fio'] ?: $me['login']) ?></h2></section>
     <div class="slider">
         <div class="track">
-            <?php for ($i = 1; $i <= 4; $i++): ?><div class="slide" style="background:linear-gradient(135deg,var(--primary),var(--accent))"><?= h($THEME['site_name']) ?> · <?= $i ?></div><?php endfor; ?>
+            <?php for ($i = 1; $i <= 4; $i++): ?><div class="slide" style="background:linear-gradient(135deg,var(--primary),var(--accent))">Пассажирам.РФ · <?= $i ?></div><?php endfor; ?>
         </div>
         <button class="sbtn sprev" type="button" onclick="slide(-1)">‹</button>
         <button class="sbtn snext" type="button" onclick="slide(1)">›</button>
@@ -394,9 +634,10 @@ if ($page === 'index'):
                 <div class="row"><strong><?= h($a['item_name']) ?></strong><span class="badge <?= $badge[$a['status']] ?? 'b-new' ?>"><?= h($a['status']) ?></span></div>
                 <div class="meta">Начало: <?= h(ru_date($a['start_date'])) ?> · <?= h($a['payment_method']) ?></div>
                 <?php if ($a['review_text']): ?><p class="small">Ваш отзыв: <?= h($a['review_text']) ?></p>
-                <?php elseif ($a['status'] !== $THEME['statuses'][0]): ?>
+                <?php elseif ($a['status'] !== 'Новая'): ?>
                     <form class="form" method="post" style="margin-top:8px">
                         <input type="hidden" name="page" value="cabinet"><input type="hidden" name="application_id" value="<?= (int) $a['id'] ?>">
+                        <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
                         <div class="field"><textarea name="review_text" rows="2" placeholder="Оставить отзыв"></textarea></div>
                         <button class="btn sm" type="submit">Отправить отзыв</button>
                     </form>
@@ -416,6 +657,7 @@ if ($page === 'index'):
             <?php if (isset($errors['form'])): ?><div class="alert"><?= h($errors['form']) ?></div><?php endif; ?>
             <form class="form" method="post" novalidate>
                 <input type="hidden" name="page" value="admin">
+                <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
                 <div class="field"><label>Логин</label><input type="text" name="admin_login"></div>
                 <div class="field"><label>Пароль</label><input type="password" name="admin_password"></div>
                 <button class="btn" type="submit">Войти</button>
@@ -425,7 +667,7 @@ if ($page === 'index'):
         $fStatus = $_GET['status'] ?? ''; $q = trim($_GET['q'] ?? ''); $sort = $_GET['sort'] ?? 'created'; $pg = max(1, (int) ($_GET['p'] ?? 1)); $per = 8;
         $order = ['created' => 'a.created_at DESC', 'date' => 'a.start_date ASC', 'status' => 'a.status ASC'][$sort] ?? 'a.created_at DESC';
         $w = []; $pr = [];
-        if (in_array($fStatus, $THEME['statuses'], true)) { $w[] = 'a.status=?'; $pr[] = $fStatus; }
+        if (in_array($fStatus, ['Новая', 'Идет обучение', 'Обучение завершено'], true)) { $w[] = 'a.status=?'; $pr[] = $fStatus; }
         if ($q !== '') { $w[] = '(u.login LIKE ? OR u.fio LIKE ?)'; $pr[] = "%$q%"; $pr[] = "%$q%"; }
         $ws = $w ? 'WHERE ' . implode(' AND ', $w) : '';
         $total = (int) $db->value("SELECT COUNT(*) FROM applications a JOIN users u ON u.id=a.user_id $ws", $pr);
@@ -437,49 +679,58 @@ if ($page === 'index'):
     ?>
         <div class="card">
             <div class="row" style="display:flex;justify-content:space-between;align-items:center"><h2>Заявки</h2><a class="btn ghost sm" href="?page=admin&adminout=1">Выход</a></div>
-            <form class="toolbar" method="get" style="margin-top:10px">
+            <form class="toolbar" method="get" style="margin-top:12px">
                 <input type="hidden" name="page" value="admin">
                 <input type="text" name="q" placeholder="Поиск: логин / ФИО" value="<?= h($q) ?>">
-                <select name="status"><option value="">Все статусы</option><?php foreach ($THEME['statuses'] as $s): ?><option value="<?= h($s) ?>" <?= $fStatus === $s ? 'selected' : '' ?>><?= h($s) ?></option><?php endforeach; ?></select>
+                <select name="status"><option value="">Все статусы</option><?php foreach (['Новая', 'Идет обучение', 'Обучение завершено'] as $s): ?><option value="<?= h($s) ?>" <?= $fStatus === $s ? 'selected' : '' ?>><?= h($s) ?></option><?php endforeach; ?></select>
                 <select name="sort"><option value="created" <?= $sort === 'created' ? 'selected' : '' ?>>По дате создания</option><option value="date" <?= $sort === 'date' ? 'selected' : '' ?>>По дате начала</option><option value="status" <?= $sort === 'status' ? 'selected' : '' ?>>По статусу</option></select>
                 <button class="btn sm" type="submit">Применить</button>
             </form>
         </div>
         <div class="card">
-            <table>
-                <thead><tr><th>#</th><th>Пользователь</th><th><?= h($THEME['item_label']) ?></th><th>Дата</th><th>Статус</th></tr></thead>
-                <tbody>
-                <?php if (!$rows): ?><tr><td colspan="5" class="small">Ничего не найдено</td></tr><?php endif; ?>
-                <?php foreach ($rows as $r): ?>
-                    <tr>
-                        <td><?= (int) $r['id'] ?></td>
-                        <td><?= h($r['fio']) ?><br><span class="small"><?= h($r['login']) ?></span></td>
-                        <td><?= h($r['item_name']) ?></td>
-                        <td><?= h(ru_date($r['start_date'])) ?></td>
-                        <td>
-                            <form method="post" class="form">
-                                <input type="hidden" name="page" value="admin"><input type="hidden" name="application_id" value="<?= (int) $r['id'] ?>">
-                                <select name="status"><?php foreach ($THEME['statuses'] as $s): ?><option value="<?= h($s) ?>" <?= $r['status'] === $s ? 'selected' : '' ?>><?= h($s) ?></option><?php endforeach; ?></select>
-                                <button class="btn sm" type="submit" name="change_status" value="1">OK</button>
-                            </form>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>#</th><th>Пользователь</th><th>Вид транспорта</th><th>Дата</th><th>Статус</th></tr></thead>
+                    <tbody>
+                    <?php if (!$rows): ?><tr><td colspan="5" class="small">Ничего не найдено</td></tr><?php endif; ?>
+                    <?php foreach ($rows as $r): ?>
+                        <tr>
+                            <td><?= (int) $r['id'] ?></td>
+                            <td><?= h($r['fio']) ?><br><span class="small"><?= h($r['login']) ?></span></td>
+                            <td><?= h($r['item_name']) ?></td>
+                            <td><?= h(ru_date($r['start_date'])) ?></td>
+                            <td>
+                                <form method="post" class="form">
+                                    <input type="hidden" name="page" value="admin"><input type="hidden" name="application_id" value="<?= (int) $r['id'] ?>">
+                                    <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
+                                    <select name="status"><?php foreach (['Новая', 'Идет обучение', 'Обучение завершено'] as $s): ?><option value="<?= h($s) ?>" <?= $r['status'] === $s ? 'selected' : '' ?>><?= h($s) ?></option><?php endforeach; ?></select>
+                                    <button class="btn sm" type="submit" name="change_status" value="1">OK</button>
+                                </form>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
             <?php if ($pages > 1): ?><div class="pag"><?php for ($i = 1; $i <= $pages; $i++): ?><?php if ($i === $pg): ?><span class="on"><?= $i ?></span><?php else: ?><a href="<?= h($base(['p' => $i])) ?>"><?= $i ?></a><?php endif; ?><?php endfor; ?></div><?php endif; ?>
         </div>
         <?php if ($flash): ?><div class="toast"><?= h($flash) ?></div><?php endif; ?>
     <?php endif; ?>
 <?php endif; ?>
 </main>
-<footer class="bot"><span>© <?= date('Y') ?> <?= h($THEME['site_name']) ?></span><a href="?page=admin">Администрирование</a></footer>
+<footer class="bot"><span>© <?= date('Y') ?> Пассажирам.РФ</span><a href="?page=admin">Администрирование</a></footer>
 </div>
 <!-- JS: слайдер (автосмена 3с, вперёд/назад) -->
 <script>
-var idx=0;function render(){var t=document.querySelector('.track');if(!t)return;var n=t.children.length;idx=(idx+n)%n;t.style.transform='translateX(-'+(idx*100)+'%)';document.querySelectorAll('.dot').forEach(function(d,i){d.classList.toggle('on',i===idx)});}
-function slide(s){idx+=s;render();clearInterval(window.__t);window.__t=setInterval(function(){idx++;render()},3000);}
-if(document.querySelector('.track')){render();window.__t=setInterval(function(){idx++;render()},3000);}
+var idx = 0;
+function render() {
+    var t = document.querySelector('.track'); if (!t) return;
+    var n = t.children.length; idx = (idx + n) % n;
+    t.style.transform = 'translateX(-' + (idx * 100) + '%)';
+    document.querySelectorAll('.dot').forEach(function (d, i) { d.classList.toggle('on', i === idx); });
+}
+function slide(s) { idx += s; render(); clearInterval(window.__t); window.__t = setInterval(function () { idx++; render(); }, 3000); }
+if (document.querySelector('.track')) { render(); window.__t = setInterval(function () { idx++; render(); }, 3000); }
 </script>
 </body>
 </html>
