@@ -524,6 +524,7 @@ if (document.querySelector('.track')) { render(); window.__t = setInterval(funct
 ?>
 
 <?php /* ФАЙЛ: pages/index.php */
+/** @var Db $db  (переменные приходят из index.php через include) */
 $items = $db->all('SELECT name,category FROM items ORDER BY id');
 ?>
 <section class="hero"><h1>Пассажирам.РФ</h1><p>Курсы вождения городского пассажирского транспорта</p></section>
@@ -548,6 +549,14 @@ $items = $db->all('SELECT name,category FROM items ORDER BY id');
 <a class="btn" href="?page=<?= uid() ? 'application' : 'register' ?>">Оставить заявку</a>
 
 <?php /* ФАЙЛ: pages/register.php */ ?>
+<?php
+/**
+ * Переменные приходят из index.php через include:
+ * @var array  $errors
+ * @var array  $old
+ * @var string $csrf
+ */
+?>
 <div class="card">
     <h2>Регистрация</h2>
     <form class="form" method="post" novalidate>
@@ -566,6 +575,14 @@ $items = $db->all('SELECT name,category FROM items ORDER BY id');
 </div>
 
 <?php /* ФАЙЛ: pages/login.php */ ?>
+<?php
+/**
+ * Переменные приходят из index.php через include:
+ * @var array  $errors
+ * @var array  $old
+ * @var string $csrf
+ */
+?>
 <div class="card">
     <h2>Вход</h2>
     <?php if (isset($errors['form'])): ?><div class="alert"><?= h($errors['form']) ?></div><?php endif; ?>
@@ -580,6 +597,13 @@ $items = $db->all('SELECT name,category FROM items ORDER BY id');
 </div>
 
 <?php /* ФАЙЛ: pages/application.php */
+/**
+ * Переменные приходят из index.php через include:
+ * @var Db     $db
+ * @var array  $errors
+ * @var array  $old
+ * @var string $csrf
+ */
 $items = $db->all('SELECT id,name,category FROM items ORDER BY id');
 ?>
 <div class="card">
@@ -604,6 +628,12 @@ $items = $db->all('SELECT id,name,category FROM items ORDER BY id');
 </div>
 
 <?php /* ФАЙЛ: pages/cabinet.php */
+/**
+ * Переменные приходят из index.php через include:
+ * @var Db     $db
+ * @var array  $badge
+ * @var string $csrf
+ */
 $apps = $db->all('SELECT a.id,a.start_date,a.payment_method,a.status,i.name item_name,r.review_text
     FROM applications a JOIN items i ON i.id=a.item_id LEFT JOIN reviews r ON r.application_id=a.id
     WHERE a.user_id=? ORDER BY a.created_at DESC', [uid()]);
@@ -645,6 +675,15 @@ $me = $db->one('SELECT login,fio FROM users WHERE id=?', [uid()]);
 <?php if (isset($_GET['created'])): ?><div class="toast">Заявка отправлена</div><?php endif; ?>
 
 <?php /* ФАЙЛ: pages/admin.php */ ?>
+<?php
+/**
+ * Переменные приходят из index.php через include:
+ * @var Db     $db
+ * @var array  $errors
+ * @var string $flash
+ * @var string $csrf
+ */
+?>
 <?php if (empty($_SESSION['is_admin'])): ?>
     <div class="card">
         <h2>Панель администратора</h2>
