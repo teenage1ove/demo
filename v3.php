@@ -271,13 +271,13 @@ body {
 
 .screen {
     width: 100%;
-    max-width: 390px;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
     background: var(--bg);
-    box-shadow: 0 0 40px rgba(0, 0, 0, .10);
 }
+
+.wrap { width: 100%; max-width: 640px; margin: 0 auto; }
 
 h1 { font-size: 36px; font-weight: 700; line-height: 1.1; letter-spacing: -.5px; }
 h2 { font-size: 24px; font-weight: 600; }
@@ -287,16 +287,18 @@ small, .small { font-size: 12px; color: var(--muted); }
 a { color: var(--dark); text-decoration: none; }
 
 .top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px;
     background: linear-gradient(135deg, var(--primary), var(--dark));
     color: #fff;
     position: sticky;
     top: 0;
     z-index: 10;
     box-shadow: var(--shadow-sm);
+}
+.top .wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
 }
 .brand {
     display: flex;
@@ -318,17 +320,20 @@ a { color: var(--dark); text-decoration: none; }
 .nav a { color: #fff; font-size: 13px; opacity: .9; }
 .nav a:hover { opacity: 1; }
 
-main { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+main { flex: 1; display: flex; justify-content: center; }
+main .wrap { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
 
 .bot {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 14px 16px;
     background: var(--surface);
     border-top: 1px solid var(--border);
     font-size: 12px;
     color: var(--muted);
+}
+.bot .wrap {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
 }
 
 .hero { text-align: center; padding: 8px 0 0; }
@@ -478,24 +483,28 @@ th { color: var(--muted); font-weight: 600; }
 <body>
 <div class="screen">
 <header class="top">
-    <a class="brand" href="?page=index">Пассажирам.РФ</a>
-    <nav class="nav">
-        <a href="?page=index">Главная</a>
-        <?php if (uid()): ?>
-            <a href="?page=application">Заявка</a><a href="?page=cabinet">Кабинет</a><a href="?page=logout">Выход</a>
-        <?php else: ?>
-            <a href="?page=login">Вход</a>
-        <?php endif; ?>
-    </nav>
+    <div class="wrap">
+        <a class="brand" href="?page=index">Пассажирам.РФ</a>
+        <nav class="nav">
+            <a href="?page=index">Главная</a>
+            <?php if (uid()): ?>
+                <a href="?page=application">Заявка</a><a href="?page=cabinet">Кабинет</a><a href="?page=logout">Выход</a>
+            <?php else: ?>
+                <a href="?page=login">Вход</a>
+            <?php endif; ?>
+        </nav>
+    </div>
 </header>
 <main>
-<?php
-/*  СТРАНИЦЫ: каждый блок-страницу (ниже, после </html>) вынеси в pages/<имя>.php,
-    а здесь оставь только этот include (он подключит нужную страницу). */
-include "pages/$view.php";
-?>
+    <div class="wrap">
+        <?php
+        /*  СТРАНИЦЫ: каждый блок-страницу (ниже, после </html>) вынеси в pages/<имя>.php,
+            а здесь оставь только этот include (он подключит нужную страницу). */
+        include "pages/$view.php";
+        ?>
+    </div>
 </main>
-<footer class="bot"><span>© <?= date('Y') ?> Пассажирам.РФ</span><a href="?page=admin">Администрирование</a></footer>
+<footer class="bot"><div class="wrap"><span>© <?= date('Y') ?> Пассажирам.РФ</span><a href="?page=admin">Администрирование</a></div></footer>
 </div>
 <!--  ФАЙЛ: slider.js — вырежи всё между <script> и </script> в slider.js, тут оставь:  <script src="slider.js"></script> -->
 <script src="slider.js"></script>
