@@ -1,5 +1,5 @@
 <?php
-/* ФАЙЛ: v3.sql — 
+/* ФАЙЛ: v3.sql 
 
 SET NAMES utf8mb4;
 
@@ -61,11 +61,11 @@ INSERT INTO `items` (`name`, `category`) VALUES
 INSERT INTO `users` (`login`, `password`, `fio`, `phone`, `email`, `birth_date`) VALUES
 ('test12', '$2y$12$di3Sp90YCZywBqYGbqnMbOgPN1yCj243u.vSZdvdfraA2NRFzbsyC', 'Наумова Софья Михайловна', '79998567744', 'test1@mail.ru', '2000-03-21');
 
-===================================================================== */
+*/
+?>
 
-
+<?php
 /*  ФАЙЛ: db.php  */
-
 class Db
 {
     private mysqli $c;
@@ -75,7 +75,7 @@ class Db
         try {
             $this->c = new mysqli($h, $u, $p, $name);
         } catch (\mysqli_sql_exception $e) {
-            die('Нет связи с базой «' . $name . '». Сначала импортируй SQL в phpMyAdmin. (' . $e->getMessage() . ')');
+            die('Нет связи с базой «' . $name . '». Сначала выполни SQL в phpMyAdmin. (' . $e->getMessage() . ')');
         }
         $this->c->set_charset('utf8mb4');
     }
@@ -96,10 +96,10 @@ class Db
     public function insert(string $sql, array $p = []): int { return (int) $this->run($sql, $p)->insert_id; }
     public function exec(string $sql, array $p = []): int { return (int) $this->run($sql, $p)->affected_rows; }
 }
+?>
 
-
+<?php
 /*  ФАЙЛ: functions.php  */
-
 function h($v): string { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); }
 
 function uid(): ?int { return isset($_SESSION['user_id']) ? (int) $_SESSION['user_id'] : null; }
@@ -119,13 +119,12 @@ function csrf_verify(): bool
 {
     return !empty($_SESSION['csrf']) && isset($_POST['csrf']) && hash_equals($_SESSION['csrf'], $_POST['csrf']);
 }
+?>
 
-
+<?php
 /*  ФАЙЛ: config.php  */
-/*  в начало config.php:  require 'db.php';  require 'functions.php';  */
-
-require 'db.php';
-require 'functions.php';
+require __DIR__ . '/db.php';
+require __DIR__ . '/functions.php';
 
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
@@ -137,12 +136,11 @@ define('ADMIN_LOGIN', 'Admin26');
 define('ADMIN_PASSWORD', 'Demo20');
 
 $db = new Db($DB_HOST, $DB_USER, $DB_PASS, 'passenger_rf');
+?>
 
-
+<?php
 /*  ФАЙЛ: index.php  */
-/*  в начало index.php:  require 'config.php';  */
-
-require 'config.php';
+require __DIR__ . '/config.php';
 
 $page = $_POST['page'] ?? $_GET['page'] ?? 'index';
 $flash = '';
@@ -238,7 +236,7 @@ $view = in_array($page, ['index', 'register', 'login', 'cabinet', 'application',
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Пассажирам.РФ</title>
 <link rel="stylesheet" href="style.css">
-<!--  ФАЙЛ: style.css — вырежи всё между <style> и </style> в style.css, тут оставь только <link> сверху -->
+<!--  При разбивке: оставь строку <link> выше, а блок <style>…</style> ниже вырежи в style.css  -->
 <style>
 :root {
     --primary: #0d8a8a;
@@ -497,17 +495,12 @@ th { color: var(--muted); font-weight: 600; }
 </header>
 <main>
     <div class="wrap">
-        <?php
-        /*  СТРАНИЦЫ: каждый блок-страницу (ниже, после </html>) вынеси в pages/<имя>.php,
-            а здесь оставь только этот include (он подключит нужную страницу). */
-        include "pages/$view.php";
-        ?>
+        <?php include __DIR__ . "/pages/$view.php"; ?>
     </div>
 </main>
 <footer class="bot"><div class="wrap"><span>© <?= date('Y') ?> Пассажирам.РФ</span><a href="?page=admin">Администрирование</a></div></footer>
 </div>
-<!--  ФАЙЛ: slider.js — вырежи всё между <script> и </script> в slider.js, тут оставь:  <script src="slider.js"></script> -->
-<script src="slider.js"></script>
+<!--  При разбивке: замени блок <script>…</script> ниже на одну строку <script src="slider.js"></script>  -->
 <script>
 var idx = 0;
 function render() {
@@ -524,15 +517,15 @@ if (document.querySelector('.track')) { render(); window.__t = setInterval(funct
 
 <?php
 /* =====================================================================
-   НИЖЕ — ИСХОДНИКИ СТРАНИЦ. Каждый блок «ФАЙЛ: pages/<имя>.php» вынеси
-   в одноимённый файл в папке pages/. В одном файле этот хвост не нужен —
-   index.php выше подключает страницы через include "pages/$view.php".
+   ДАЛЬШЕ — СТРАНИЦЫ. Каждый блок «ФАЙЛ: pages/<имя>.php» целиком скопируй
+   в одноимённый файл в папке pages/. index.php подключает их через
+   include __DIR__ . "/pages/$view.php".
    ===================================================================== */
-return;
 ?>
 
-<?php /* ФАЙЛ: pages/index.php */ ?>
-<?php $items = $db->all('SELECT name,category FROM items ORDER BY id'); ?>
+<?php /* ФАЙЛ: pages/index.php */
+$items = $db->all('SELECT name,category FROM items ORDER BY id');
+?>
 <section class="hero"><h1>Пассажирам.РФ</h1><p>Курсы вождения городского пассажирского транспорта</p></section>
 <div class="slider">
     <div class="track">
@@ -554,7 +547,6 @@ return;
 </section>
 <a class="btn" href="?page=<?= uid() ? 'application' : 'register' ?>">Оставить заявку</a>
 
-
 <?php /* ФАЙЛ: pages/register.php */ ?>
 <div class="card">
     <h2>Регистрация</h2>
@@ -573,7 +565,6 @@ return;
     </form>
 </div>
 
-
 <?php /* ФАЙЛ: pages/login.php */ ?>
 <div class="card">
     <h2>Вход</h2>
@@ -588,9 +579,9 @@ return;
     </form>
 </div>
 
-
-<?php /* ФАЙЛ: pages/application.php */ ?>
-<?php $items = $db->all('SELECT id,name,category FROM items ORDER BY id'); ?>
+<?php /* ФАЙЛ: pages/application.php */
+$items = $db->all('SELECT id,name,category FROM items ORDER BY id');
+?>
 <div class="card">
     <h2>Оформление заявки</h2>
     <form class="form" method="post" novalidate>
@@ -612,9 +603,7 @@ return;
     </form>
 </div>
 
-
-<?php /* ФАЙЛ: pages/cabinet.php */ ?>
-<?php
+<?php /* ФАЙЛ: pages/cabinet.php */
 $apps = $db->all('SELECT a.id,a.start_date,a.payment_method,a.status,i.name item_name,r.review_text
     FROM applications a JOIN items i ON i.id=a.item_id LEFT JOIN reviews r ON r.application_id=a.id
     WHERE a.user_id=? ORDER BY a.created_at DESC', [uid()]);
@@ -654,7 +643,6 @@ $me = $db->one('SELECT login,fio FROM users WHERE id=?', [uid()]);
 </section>
 <a class="btn" href="?page=application">Новая заявка</a>
 <?php if (isset($_GET['created'])): ?><div class="toast">Заявка отправлена</div><?php endif; ?>
-
 
 <?php /* ФАЙЛ: pages/admin.php */ ?>
 <?php if (empty($_SESSION['is_admin'])): ?>
